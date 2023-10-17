@@ -44,7 +44,7 @@ use serde_json::json;
 use storage::StorageMode;
 use zip::ZipArchive;
 
-use crate::auth::{ReadAccess, WriteAccess};
+use crate::auth::{ReadAccess, WriteAccess, AuthMode};
 use crate::config::Config;
 use crate::error::{ApiErrorContext, ApiErrorStatus, Error};
 use crate::search::SearchBackend;
@@ -131,6 +131,7 @@ async fn publish(
     index: &State<PackageIndex>,
     authorization: Result<WriteAccess, Error>,
     _cli_version: Result<WallyVersion, Error>,
+    config: &State<Config>,
     data: Data<'_>,
 ) -> Result<Json<serde_json::Value>, Error> {
     _cli_version?;
@@ -155,8 +156,15 @@ async fn publish(
 
     let manifest = get_manifest(&mut archive).status(Status::BadRequest)?;
     let package_id = manifest.package_id();
+    let restrict_org = match &config.auth {
+        AuthMode::GithubOAuth { restrict_write_to_org, .. } => match restrict_write_to_org {
+            Some(org) => Some(org),
+            None => None,
+},
+        _ => None,
+    };
 
-    let write_permission = authorization.can_write_package(&package_id, index).await?;
+    let write_permission = authorization.can_write_package(&package_id, index, restrict_org).await?;
 
     if write_permission.is_none() {
         return Err(format_err!(
@@ -170,7 +178,7 @@ async fn publish(
     if let WriteAccess::Github(github) = authorization {
         let user_id = github.id();
         let scope = package_id.name().scope();
-
+        
         // However we should only do this if they are the user matching this scope!
         // If they have permission due to being a member of an org we want to leave
         // the permission up to the org membership so if they are removed from the
@@ -191,7 +199,6 @@ async fn publish(
             return Err(format_err!("package already exists in index").status(Status::Conflict));
         }
     }
-
     storage
         .write(&manifest.package_id(), &archive.into_inner().into_inner())
         .await
@@ -206,7 +213,6 @@ async fn publish(
         // Eventually this will get too expensive and we should only add the new package.
         search_backend.crawl_packages(index)?;
     }
-
     Ok(Json(json!({
         "message": "Package published successfully!"
     })))
