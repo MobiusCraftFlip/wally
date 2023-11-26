@@ -157,10 +157,7 @@ async fn publish(
     let manifest = get_manifest(&mut archive).status(Status::BadRequest)?;
     let package_id = manifest.package_id();
     let restrict_org = match &config.auth {
-        AuthMode::GithubOAuth {
-            restrict_write,
-            ..
-        } => match restrict_write {
+        AuthMode::GithubOAuth { restrict_write, .. } => match restrict_write {
             Some(org) => Some(org),
             None => None,
         },
