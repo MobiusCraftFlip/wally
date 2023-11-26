@@ -18,11 +18,14 @@ use crate::{config::Config, error::ApiErrorStatus};
 #[serde(tag = "type", content = "value", rename_all = "kebab-case")]
 pub enum AuthMode {
     ApiKey(String),
-    DoubleApiKey { read: Option<String>, write: String },
+    DoubleApiKey {
+        read: Option<String>,
+        write: String,
+    },
     GithubOAuth {
-        restrict_read_to_org: Option<String>,
-        restrict_write_to_org: Option<String>,
-        api_keys: Option<Vec<String>>
+        restrict_read: Option<String>,
+        restrict_write: Option<String>,
+        api_keys: Option<Vec<String>>,
     },
     Unauthenticated,
 }
@@ -180,16 +183,20 @@ impl<'r> FromRequest<'r> for ReadAccess {
 
         match &config.auth {
             AuthMode::Unauthenticated => Outcome::Success(ReadAccess::Public),
-            AuthMode::GithubOAuth { restrict_read_to_org, api_keys, .. } => {
-                println!("{:#?}", restrict_read_to_org);
-                match restrict_read_to_org {
+            AuthMode::GithubOAuth {
+                restrict_read,
+                api_keys,
+                ..
+            } => {
+                println!("{:#?}", restrict_read);
+                match restrict_read {
                     Some(org) => {
                         let auth = request.headers().get_one("authorization");
 
                         if api_keys.is_some() && auth.is_some() {
                             let keys = api_keys.clone().unwrap();
                             if auth.unwrap().starts_with("Bearer ") {
-                                let key =  (auth.unwrap()[6..].trim()).to_owned();
+                                let key = (auth.unwrap()[6..].trim()).to_owned();
                                 if keys.contains(&key) {
                                     return Outcome::Success(ReadAccess::ApiKey);
                                 }
@@ -197,30 +204,26 @@ impl<'r> FromRequest<'r> for ReadAccess {
                         }
 
                         match verify_github_token(request).await {
-                            Outcome::Success(write_access) => {
-                                match write_access {
-                                    WriteAccess::ApiKey => Outcome::Success(ReadAccess::ApiKey),
-                                    WriteAccess::Github(github_info) => {
-                                        if github_info.orgs.contains(org) {
-                                            Outcome::Success(ReadAccess::ApiKey)
-                                        } else {
-                                            format_err!("you do not have permission to read registry")
-                                                .status(Status::Unauthorized)
-                                                .into()
-                                        }
-                                    },
+                            Outcome::Success(write_access) => match write_access {
+                                WriteAccess::ApiKey => Outcome::Success(ReadAccess::ApiKey),
+                                WriteAccess::Github(github_info) => {
+                                    if github_info.orgs.contains(org) {
+                                        Outcome::Success(ReadAccess::ApiKey)
+                                    } else {
+                                        format_err!("you do not have permission to read registry")
+                                            .status(Status::Unauthorized)
+                                            .into()
+                                    }
                                 }
                             },
                             _ => format_err!("Invalid github Token")
                                 .status(Status::Unauthorized)
-                                .into()
+                                .into(),
                         }
-
-
-                    },
-                    None => Outcome::Success(ReadAccess::Public)
-                } 
-            },
+                    }
+                    None => Outcome::Success(ReadAccess::Public),
+                }
+            }
             AuthMode::ApiKey(key) => match_api_key(request, key, ReadAccess::ApiKey),
             AuthMode::DoubleApiKey { read, .. } => match read {
                 None => Outcome::Success(ReadAccess::Public),
@@ -247,13 +250,15 @@ impl WriteAccess {
         &self,
         package_id: &PackageId,
         index: &PackageIndex,
-        restrict_org: Option<&String>
+        restrict_org: Option<&String>,
     ) -> anyhow::Result<Option<WritePermission>> {
         let scope = package_id.name().scope();
 
         match self {
             WriteAccess::ApiKey => Ok(Some(WritePermission::Default)),
-            WriteAccess::Github(info) => github_write_permission_for_scope(info, scope, index, restrict_org),
+            WriteAccess::Github(info) => {
+                github_write_permission_for_scope(info, scope, index, restrict_org)
+            }
         }
     }
 }
@@ -262,13 +267,13 @@ fn github_write_permission_for_scope(
     info: &GithubInfo,
     scope: &str,
     index: &PackageIndex,
-    restrict_org: Option<&String>
+    restrict_org: Option<&String>,
 ) -> anyhow::Result<Option<WritePermission>> {
     if let Some(org) = restrict_org {
         if info.orgs.contains(org) {
-            return Ok(Some(WritePermission::Org))
+            return Ok(Some(WritePermission::Org));
         } else {
-            return Ok(None)
+            return Ok(None);
         };
     };
 
@@ -311,14 +316,14 @@ impl<'r> FromRequest<'r> for WriteAccess {
                 if api_keys.is_some() && auth.is_some() {
                     let keys = api_keys.clone().unwrap();
                     if auth.unwrap().starts_with("Bearer ") {
-                        let key =  (auth.unwrap()[6..].trim()).to_owned();
+                        let key = (auth.unwrap()[6..].trim()).to_owned();
                         if keys.contains(&key) {
                             return Outcome::Success(WriteAccess::ApiKey);
                         }
                     }
                 }
                 verify_github_token(request).await
-            },
+            }
         }
     }
 }

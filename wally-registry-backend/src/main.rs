@@ -44,7 +44,7 @@ use serde_json::json;
 use storage::StorageMode;
 use zip::ZipArchive;
 
-use crate::auth::{ReadAccess, WriteAccess, AuthMode};
+use crate::auth::{AuthMode, ReadAccess, WriteAccess};
 use crate::config::Config;
 use crate::error::{ApiErrorContext, ApiErrorStatus, Error};
 use crate::search::SearchBackend;
@@ -157,14 +157,19 @@ async fn publish(
     let manifest = get_manifest(&mut archive).status(Status::BadRequest)?;
     let package_id = manifest.package_id();
     let restrict_org = match &config.auth {
-        AuthMode::GithubOAuth { restrict_write_to_org, .. } => match restrict_write_to_org {
+        AuthMode::GithubOAuth {
+            restrict_write,
+            ..
+        } => match restrict_write {
             Some(org) => Some(org),
             None => None,
-},
+        },
         _ => None,
     };
 
-    let write_permission = authorization.can_write_package(&package_id, index, restrict_org).await?;
+    let write_permission = authorization
+        .can_write_package(&package_id, index, restrict_org)
+        .await?;
 
     if write_permission.is_none() {
         return Err(format_err!(
@@ -178,7 +183,7 @@ async fn publish(
     if let WriteAccess::Github(github) = authorization {
         let user_id = github.id();
         let scope = package_id.name().scope();
-        
+
         // However we should only do this if they are the user matching this scope!
         // If they have permission due to being a member of an org we want to leave
         // the permission up to the org membership so if they are removed from the
