@@ -2,7 +2,7 @@
 
 ## Unreleased Changes
 
-# 0.3.2-mo
+# 0.3.2-mo   
 
 ## 0.3.2 (2023-06-05)
 * Added private field to package manifest ([#9])([#76])
