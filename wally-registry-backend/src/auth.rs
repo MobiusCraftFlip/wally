@@ -180,9 +180,22 @@ impl<'r> FromRequest<'r> for ReadAccess {
 
         match &config.auth {
             AuthMode::Unauthenticated => Outcome::Success(ReadAccess::Public),
-            AuthMode::GithubOAuth { restrict_read_to_org, .. } => {
+            AuthMode::GithubOAuth { restrict_read_to_org, api_keys, .. } => {
+                println!("{:#?}", restrict_read_to_org);
                 match restrict_read_to_org {
                     Some(org) => {
+                        let auth = request.headers().get_one("authorization");
+
+                        if api_keys.is_some() && auth.is_some() {
+                            let keys = api_keys.clone().unwrap();
+                            if auth.unwrap().starts_with("Bearer ") {
+                                let key =  (auth.unwrap()[6..].trim()).to_owned();
+                                if keys.contains(&key) {
+                                    return Outcome::Success(ReadAccess::ApiKey);
+                                }
+                            }
+                        }
+
                         match verify_github_token(request).await {
                             Outcome::Success(write_access) => {
                                 match write_access {
@@ -293,7 +306,19 @@ impl<'r> FromRequest<'r> for WriteAccess {
             AuthMode::DoubleApiKey { write, .. } => {
                 match_api_key(request, write, WriteAccess::ApiKey)
             }
-            AuthMode::GithubOAuth { .. } => verify_github_token(request).await,
+            AuthMode::GithubOAuth { api_keys, .. } => {
+                let auth = request.headers().get_one("authorization");
+                if api_keys.is_some() && auth.is_some() {
+                    let keys = api_keys.clone().unwrap();
+                    if auth.unwrap().starts_with("Bearer ") {
+                        let key =  (auth.unwrap()[6..].trim()).to_owned();
+                        if keys.contains(&key) {
+                            return Outcome::Success(WriteAccess::ApiKey);
+                        }
+                    }
+                }
+                verify_github_token(request).await
+            },
         }
     }
 }
