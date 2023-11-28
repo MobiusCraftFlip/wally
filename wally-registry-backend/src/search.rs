@@ -102,26 +102,33 @@ impl SearchBackend {
             let package_name = path.file_name().unwrap().to_str().unwrap();
 
             let metadata = package_index
-                .get_package_metadata(&PackageName::new(package_scope, package_name)?)?;
+                .get_package_metadata(&PackageName::new(package_scope, package_name)?);
+            match metadata {
+                Ok(data) => {
+                    let mut doc = Document::default();
 
-            let mut doc = Document::default();
+                    for manifest in &(*data).versions {
+                        doc.add_text(versions, manifest.package.version.to_string());
 
-            for manifest in &(*metadata).versions {
-                doc.add_text(versions, manifest.package.version.to_string());
+                        if !manifest.package.version.is_prerelease() {
+                            doc.add_text(scope, manifest.package.name.scope());
+                            doc.add_text(name, manifest.package.name.name());
 
-                if !manifest.package.version.is_prerelease() {
-                    doc.add_text(scope, manifest.package.name.scope());
-                    doc.add_text(name, manifest.package.name.name());
+                            if let Some(description_text) = &manifest.package.description {
+                                doc.add_text(description, description_text);
+                            }
 
-                    if let Some(description_text) = &manifest.package.description {
-                        doc.add_text(description, description_text);
+                            break;
+                        }
                     }
 
-                    break;
-                }
+                    self.writer.add_document(doc);
+                },
+                Err(err) => {
+                    println!("Error with package: {}", err)
+                },
             }
-
-            self.writer.add_document(doc);
+            
         }
 
         self.writer.commit()?;
