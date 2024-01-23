@@ -16,7 +16,7 @@ COPY wally-registry-backend/Cargo.toml /usr/app/wally-registry-backend/
 COPY Cargo.toml Cargo.lock /usr/app/
 COPY src/ /usr/app/src/
 
-RUN cargo build --package wally-registry-backend --release
+RUN cargo build --package wally-registry-backend --release --features "s3-storage"
 
 # Copy actual application source in and force a modified timestamp so that
 # Cargo will rebuild.
